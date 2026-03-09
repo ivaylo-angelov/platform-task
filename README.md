@@ -175,7 +175,6 @@ tofu destroy
 │   │   └── terragrunt.hcl             # Team Alpha inputs (vpc_cidr, allowed_ip, etc.)
 │   └── team-beta/
 │       └── terragrunt.hcl             # Team Beta inputs
-├── setup.sh                            # Automated bootstrap + init
 ├── generated-diagrams/                 # Architecture diagram
 └── README.md
 ```
