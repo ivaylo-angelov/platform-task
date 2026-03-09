@@ -1,82 +1,55 @@
-# Platform Task - AWS Infrastructure
+# Platform Task - Multi-Team AWS Infrastructure
 
-Terraform project that provisions a secure AWS VPC environment with public and private EC2 instances, accessible via AWS Systems Manager (SSM) Session Manager — no SSH keys required.
+A self-service platform that provisions isolated AWS environments per team using Terraform modules and Terragrunt. Each team gets its own VPC, EC2 instances, and security boundaries — onboarding is as simple as copying a config file.
 
 ## Architecture
 
 ![Architecture Diagram](generated-diagrams/architecture.png)
 
-### What Gets Created
+### Per-Team Environment
+
+Each team receives a fully isolated environment:
 
 | Resource | Details |
 |----------|---------|
-| **VPC** | `10.0.0.0/16` with DNS support enabled |
-| **Public Subnets** | One per AZ (e.g. `10.0.0.0/24`, `10.0.1.0/24`, `10.0.2.0/24`) |
-| **Private Subnets** | One per AZ (e.g. `10.0.10.0/24`, `10.0.11.0/24`, `10.0.12.0/24`) |
+| **VPC** | Dedicated CIDR (e.g. `10.1.0.0/16`) with DNS support |
+| **Public Subnets** | One per AZ, dynamically computed via `cidrsubnet` |
+| **Private Subnets** | One per AZ, dynamically computed via `cidrsubnet` |
 | **Internet Gateway** | Attached to VPC for public subnet internet access |
-| **NAT Gateway** | Single NAT GW in first public subnet — gives private subnets outbound internet |
-| **Public EC2** | `t4g.micro` (Graviton/ARM64), Amazon Linux 2023, in first public subnet |
-| **Private EC2** | `t4g.micro` (Graviton/ARM64), Amazon Linux 2023, in first private subnet |
-| **IAM Role** | SSM-enabled instance profile attached to both instances |
-| **Security Groups** | Public: HTTPS (443) + SSH (22) from a single IP. Private: all traffic from public SG only |
-| **VPC Flow Logs** | CloudWatch Logs destination, 30-day retention, 60s aggregation |
+| **NAT Gateway** | Single NAT GW — gives private subnets outbound internet |
+| **Public EC2** | `t4g.micro` (Graviton/ARM64), Amazon Linux 2023 |
+| **Private EC2** | `t4g.micro` (Graviton/ARM64), Amazon Linux 2023 |
+| **IAM Role** | Per-team SSM instance profile |
+| **Security Groups** | Public: HTTPS + SSH from a single IP. Private: from public SG only |
+| **VPC Flow Logs** | CloudWatch Logs, 30-day retention |
 
 ### Design Decisions
 
-- **SSM as primary access** — No key management, fully auditable sessions via CloudTrail. SSH (port 22) is open to the allowed IP as a fallback but SSM is the intended access method
-- **Graviton (ARM64)** — Better price/performance ratio vs x86 instances
-- **IMDSv2 enforced** — Instance metadata service hardened against SSRF attacks
-- **Encrypted EBS volumes** — Root volumes use gp3 with encryption enabled
-- **S3 + DynamoDB backend** — Remote state with locking prevents concurrent modifications
-- **Multi-AZ VPC** — Subnets span all available AZs in the region (dynamically computed via `cidrsubnet`)
-- **VPC Flow Logs** — Network traffic logged to CloudWatch for observability and security auditing
-- **Community Terraform modules** — Uses battle-tested [terraform-aws-modules](https://github.com/terraform-aws-modules) for VPC, security groups, and EC2
+- **Terragrunt for orchestration** — Each team gets isolated state files, preventing blast radius across teams
+- **SSM as primary access** — No key management, fully auditable sessions via CloudTrail. SSH restricted to allowed IP as fallback
+- **Graviton (ARM64)** — Better price/performance ratio vs x86
+- **IMDSv2 enforced** — Instance metadata service hardened against SSRF
+- **Encrypted EBS (gp3)** — Root volumes encrypted by default
+- **Multi-AZ VPC** — Subnets span all available AZs in the region
+- **VPC Flow Logs** — Network observability and security auditing
+- **Community Terraform modules** — Battle-tested [terraform-aws-modules](https://github.com/terraform-aws-modules) for VPC, SGs, and EC2
 
 ## Prerequisites
 
-- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5 (or [OpenTofu](https://opentofu.org/docs/intro/install/))
-- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) configured with credentials
+- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5
+- [Terragrunt](https://terragrunt.gruntwork.io/docs/getting-started/install/) >= 0.55
+- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) with configured credentials
 - [Session Manager Plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) for AWS CLI
 
-Verify your setup:
-
 ```bash
-terraform --version              # >= 1.5
-aws sts get-caller-identity      # should return your account
-session-manager-plugin           # should print version info
+terraform --version          # >= 1.5
+terragrunt --version         # >= 0.55
+aws sts get-caller-identity  # should return your account
 ```
 
 ## Quick Start
 
-### Automated Setup
-
-A setup script handles bootstrapping, backend configuration, and initialization in one step:
-
-```bash
-./setup.sh
-```
-
-Then configure your variables and deploy:
-
-```bash
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars — set allowed_ip to your public IP:
-#   curl -s https://checkip.amazonaws.com
-
-terraform fmt -check
-terraform validate
-terraform plan
-terraform apply
-```
-
-### Manual Setup (Step-by-Step)
-
-<details>
-<summary>Click to expand manual steps</summary>
-
-#### Step 1: Bootstrap the Remote State Backend
-
-This creates the S3 bucket and DynamoDB table used for Terraform state storage and locking.
+### Step 1: Bootstrap Remote State
 
 ```bash
 cd bootstrap
@@ -84,128 +57,143 @@ terraform init
 terraform apply
 ```
 
-Note the outputs — you'll need the bucket name in the next step:
+### Step 2: Configure Team Environments
+
+Set the `allowed_ip` in each team's config:
 
 ```bash
-terraform output
-# state_bucket_name = "platform-task-tfstate-123456789012"
-# lock_table_name   = "platform-task-tflock"
-# region            = "eu-west-1"
+# Find your public IP
+curl -s https://checkip.amazonaws.com
+
+# Edit each team's config
+vi environments/team-alpha/terragrunt.hcl
+vi environments/team-beta/terragrunt.hcl
 ```
 
-#### Step 2: Configure the Backend
+### Step 3: Deploy
 
 ```bash
-cd ..
-cp backend.hcl.example backend.hcl
+# Deploy all teams at once
+cd environments
+terragrunt run-all apply
+
+# Or deploy a single team
+cd environments/team-alpha
+terragrunt apply
 ```
 
-Edit `backend.hcl` and replace `ACCOUNT_ID` with your AWS account ID (from the bootstrap output):
-
-```hcl
-bucket         = "platform-task-tfstate-123456789012"
-key            = "infra/terraform.tfstate"
-region         = "eu-west-1"
-dynamodb_table = "platform-task-tflock"
-encrypt        = true
-```
-
-#### Step 3: Configure Variables
+### Step 4: Connect via SSM
 
 ```bash
-cp terraform.tfvars.example terraform.tfvars
+# Get connection commands from outputs
+cd environments/team-alpha
+terragrunt output ssm_connect_public
+terragrunt output ssm_connect_private
 ```
 
-Edit `terraform.tfvars` and set your public IP. To find it:
+### Step 5: Verify Internet Connectivity
+
+Once connected via SSM:
 
 ```bash
 curl -s https://checkip.amazonaws.com
 ```
 
-Then update `terraform.tfvars`:
+- **Public instance** returns its own public IP
+- **Private instance** returns the NAT Gateway's Elastic IP
+
+## Onboarding a New Team
+
+Adding a new team is a 3-step process:
+
+```bash
+# 1. Copy an existing team config
+cp -r environments/team-alpha environments/team-newname
+
+# 2. Edit the config
+vi environments/team-newname/terragrunt.hcl
+```
+
+Update the inputs:
 
 ```hcl
-allowed_ip = "203.0.113.1/32"   # Replace with your IP
+inputs = {
+  team_name     = "newname"
+  environment   = "dev"
+  vpc_cidr      = "10.3.0.0/16"    # Must not overlap with existing teams
+  instance_type = "t4g.micro"
+  allowed_ip    = "203.0.113.1/32"
+}
 ```
-
-#### Step 4: Deploy the Infrastructure
 
 ```bash
-terraform init -backend-config=backend.hcl
-terraform fmt -check
-terraform validate
-terraform plan
-terraform apply
+# 3. Deploy
+cd environments/team-newname
+terragrunt apply
 ```
 
-</details>
-
-### Step 5: Connect to the Instances
-
-After deployment, Terraform outputs ready-to-use SSM connection commands:
-
-```bash
-# Copy the command directly from Terraform output
-$(terraform output -raw ssm_connect_public)
-
-# Or for the private instance
-$(terraform output -raw ssm_connect_private)
-```
-
-### Step 6: Verify Internet Connectivity
-
-Once connected via SSM, run from inside the instance:
-
-```bash
-curl -s https://checkip.amazonaws.com
-```
-
-- The **public instance** returns its own public IP
-- The **private instance** returns the NAT Gateway's Elastic IP
+The new team gets its own VPC, instances, security groups, IAM role, and state file — completely isolated from other teams.
 
 ## Tear Down
 
-Destroy in reverse order:
-
 ```bash
-# 1. Destroy the main infrastructure
-terraform destroy
+# Destroy all teams
+cd environments
+terragrunt run-all destroy
 
-# 2. Destroy the bootstrap resources (optional)
+# Destroy a single team
+cd environments/team-alpha
+terragrunt destroy
+
+# Destroy bootstrap (optional)
 cd bootstrap
+# Remove prevent_destroy lifecycle rule first
 terraform destroy
 ```
-
-> **Note:** The S3 bucket has `prevent_destroy = true` as a safety measure. To fully remove it, edit `bootstrap/main.tf` to remove the lifecycle rule, empty the bucket (`aws s3 rm s3://BUCKET_NAME --recursive`), then run `terraform destroy` again.
 
 ## Project Structure
 
 ```
 .
-├── bootstrap/                  # Remote state backend (S3 + DynamoDB)
+├── bootstrap/                          # S3 bucket + DynamoDB for remote state
 │   ├── main.tf
 │   ├── variables.tf
 │   ├── outputs.tf
 │   └── versions.tf
-├── setup.sh                    # Automated bootstrap + backend config + init
-├── main.tf                     # Locals, data sources (AZs, AMI)
-├── vpc.tf                      # VPC, subnets, NAT GW, flow logs
-├── security.tf                 # Public and private security groups
-├── iam.tf                      # SSM role and instance profile
-├── compute.tf                  # EC2 instances (Graviton, Amazon Linux 2023)
-├── variables.tf                # Input variables with defaults and validation
-├── outputs.tf                  # Useful outputs (instance IDs, SSM commands)
-├── versions.tf                 # Provider and Terraform version constraints
-├── backend.tf                  # S3 backend configuration (partial)
-├── backend.hcl.example         # Backend config template
-├── terraform.tfvars.example    # Variables template
-├── generated-diagrams/         # Architecture diagram
+├── modules/
+│   └── team-environment/               # Reusable module — one environment per team
+│       ├── main.tf                     # Locals, data sources (AZs, AMI)
+│       ├── vpc.tf                      # Multi-AZ VPC, NAT GW, flow logs
+│       ├── security.tf                 # Public + private security groups
+│       ├── iam.tf                      # SSM role and instance profile
+│       ├── compute.tf                  # Graviton EC2 instances
+│       ├── variables.tf                # Module inputs
+│       └── outputs.tf                  # Instance IDs, SSM commands
+├── environments/
+│   ├── terragrunt.hcl                  # Root config — provider, backend, common inputs
+│   ├── team-alpha/
+│   │   └── terragrunt.hcl             # Team Alpha inputs (vpc_cidr, allowed_ip, etc.)
+│   └── team-beta/
+│       └── terragrunt.hcl             # Team Beta inputs
+├── setup.sh                            # Automated bootstrap + init
+├── generated-diagrams/                 # Architecture diagram
 └── README.md
 ```
 
-## Cost Estimate
+### State Isolation
 
-Approximate monthly costs for `eu-west-1` (USD):
+Each team's state is stored at a unique S3 key:
+
+```
+s3://platform-task-tfstate/
+├── team-alpha/terraform.tfstate
+├── team-beta/terraform.tfstate
+└── team-newname/terraform.tfstate
+```
+
+Teams cannot affect each other's infrastructure — a `terragrunt destroy` in `team-alpha/` only touches Team Alpha's resources.
+
+## Cost Estimate (Per Team)
 
 | Resource | Cost |
 |----------|------|
@@ -213,20 +201,17 @@ Approximate monthly costs for `eu-west-1` (USD):
 | EC2 `t4g.micro` x2 | ~$15 (or free-tier eligible) |
 | EBS gp3 volumes x2 | ~$2 |
 | VPC Flow Logs (CloudWatch) | ~$0.50/GB ingested |
-| S3 state bucket | < $0.01 |
-| DynamoDB lock table | < $0.01 |
-| **Total** | **~$50/month** (mostly NAT Gateway) |
+| **Total per team** | **~$50/month** |
 
-> **Tip:** Remember to run `terraform destroy` when you're done to avoid ongoing charges.
+Shared costs (S3 state bucket + DynamoDB lock table) are negligible (< $0.01/month).
 
 ## Production Considerations
 
-This project is scoped for a technical assessment. In a production environment, you would additionally consider:
-
-- **SSM VPC Endpoints** — Add interface endpoints for `ssm`, `ssmmessages`, and `ec2messages` so SSM traffic stays on the AWS backbone instead of routing through the NAT Gateway / public internet
-- **NAT Gateway per AZ** — The current setup uses a single NAT GW for cost efficiency; production workloads should use one per AZ for high availability (`single_nat_gateway = false`, `one_nat_gateway_per_az = true`)
-- **Auto Scaling** — Replace standalone instances with Auto Scaling Groups for self-healing
-- **Monitoring & Alerting** — CloudWatch alarms on instance health, NAT GW bandwidth, and Flow Log anomalies
+- **SSM VPC Endpoints** — Interface endpoints for `ssm`, `ssmmessages`, `ec2messages` to keep SSM traffic on the AWS backbone
+- **NAT Gateway per AZ** — One per AZ for high availability (`single_nat_gateway = false`)
+- **CIDR Management** — Automated overlap detection in CI (e.g. `python3 check_cidr_overlaps.py`)
+- **GitOps Pipeline** — PR-based workflow where new team configs are reviewed before merge triggers `terragrunt apply`
+- **Monitoring** — CloudWatch alarms on instance health, NAT GW bandwidth, and Flow Log anomalies
 
 ## Community Modules Used
 
