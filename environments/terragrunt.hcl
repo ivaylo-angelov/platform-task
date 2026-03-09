@@ -4,38 +4,11 @@
 locals {
   project_name = "platform-task"
   region       = "eu-west-1"
-}
-
-# Generate the provider configuration for each team environment
-generate "provider" {
-  path      = "provider.tf"
-  if_exists = "overwrite_terragrunt"
-  contents  = <<-EOF
-    terraform {
-      required_version = ">= 1.5"
-
-      required_providers {
-        aws = {
-          source  = "hashicorp/aws"
-          version = "~> 5.0"
-        }
-      }
-    }
-
-    provider "aws" {
-      region = "${local.region}"
-
-      default_tags {
-        tags = {
-          Project     = "${local.project_name}"
-          ManagedBy   = "terragrunt"
-        }
-      }
-    }
-  EOF
+  account_id   = get_aws_account_id()
 }
 
 # Remote state configuration — each team gets its own state file
+# Bucket name matches bootstrap: ${project_name}-tfstate-${account_id}
 remote_state {
   backend = "s3"
 
@@ -45,7 +18,7 @@ remote_state {
   }
 
   config = {
-    bucket         = "${local.project_name}-tfstate"
+    bucket         = "${local.project_name}-tfstate-${local.account_id}"
     key            = "${path_relative_to_include()}/terraform.tfstate"
     region         = local.region
     encrypt        = true
