@@ -1,6 +1,6 @@
 # Platform Task - Multi-Team AWS Infrastructure
 
-A self-service platform that provisions isolated AWS environments per team using Terraform modules and Terragrunt. Each team gets its own VPC, EC2 instances, and security boundaries — onboarding is as simple as copying a config file.
+A self-service platform that provisions isolated AWS environments per team using OpenTofu modules and Terragrunt. Each team gets its own VPC, EC2 instances, and security boundaries — onboarding is as simple as copying a config file.
 
 ## Architecture
 
@@ -32,17 +32,17 @@ Each team receives a fully isolated environment:
 - **Encrypted EBS (gp3)** — Root volumes encrypted by default
 - **Multi-AZ VPC** — Subnets span all available AZs in the region
 - **VPC Flow Logs** — Network observability and security auditing
-- **Community Terraform modules** — Battle-tested [terraform-aws-modules](https://github.com/terraform-aws-modules) for VPC, SGs, and EC2
+- **Community OpenTofu modules** — Battle-tested [terraform-aws-modules](https://github.com/terraform-aws-modules) for VPC, SGs, and EC2
 
 ## Prerequisites
 
-- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5
+- [OpenTofu](https://opentofu.org/docs/intro/install/) >= 1.5
 - [Terragrunt](https://terragrunt.gruntwork.io/docs/getting-started/install/) >= 0.55
 - [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) with configured credentials
 - [Session Manager Plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) for AWS CLI
 
 ```bash
-terraform --version          # >= 1.5
+tofu --version               # >= 1.5
 terragrunt --version         # >= 0.55
 aws sts get-caller-identity  # should return your account
 ```
@@ -53,8 +53,8 @@ aws sts get-caller-identity  # should return your account
 
 ```bash
 cd bootstrap
-terraform init
-terraform apply
+tofu init
+tofu apply
 ```
 
 ### Step 2: Configure Team Environments
@@ -75,7 +75,7 @@ vi environments/team-beta/terragrunt.hcl
 ```bash
 # Deploy all teams at once
 cd environments
-terragrunt run-all apply
+terragrunt run --all apply
 
 # Or deploy a single team
 cd environments/team-alpha
@@ -139,7 +139,7 @@ The new team gets its own VPC, instances, security groups, IAM role, and state f
 ```bash
 # Destroy all teams
 cd environments
-terragrunt run-all destroy
+terragrunt run --all destroy
 
 # Destroy a single team
 cd environments/team-alpha
@@ -148,7 +148,7 @@ terragrunt destroy
 # Destroy bootstrap (optional)
 cd bootstrap
 # Remove prevent_destroy lifecycle rule first
-terraform destroy
+tofu destroy
 ```
 
 ## Project Structure
@@ -170,7 +170,7 @@ terraform destroy
 │       ├── variables.tf                # Module inputs
 │       └── outputs.tf                  # Instance IDs, SSM commands
 ├── environments/
-│   ├── terragrunt.hcl                  # Root config — provider, backend, common inputs
+│   ├── root.hcl                        # Root config — provider, backend, common inputs
 │   ├── team-alpha/
 │   │   └── terragrunt.hcl             # Team Alpha inputs (vpc_cidr, allowed_ip, etc.)
 │   └── team-beta/
