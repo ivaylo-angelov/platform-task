@@ -1,6 +1,6 @@
 # Platform Task - Multi-Team AWS Infrastructure
 
-A self-service platform that provisions isolated AWS environments per team using OpenTofu modules and Terragrunt. Each team gets its own VPC, EC2 instances, and security boundaries — onboarding is as simple as copying a config file.
+A self-service platform that provisions isolated AWS environments per team using Terraform modules and Terragrunt. Each team gets its own VPC, EC2 instances, and security boundaries — onboarding is as simple as copying a config file.
 
 ## Architecture
 
