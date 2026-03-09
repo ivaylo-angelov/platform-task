@@ -1,6 +1,9 @@
 # Root Terragrunt configuration
 # All team environments inherit from this file.
 
+# Use OpenTofu instead of Terraform
+terraform_binary = "tofu"
+
 locals {
   project_name = "platform-task"
   region       = "eu-west-1"

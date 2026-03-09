@@ -2,7 +2,7 @@
 # To onboard a new team, copy this file to a new directory and update the inputs.
 
 include "root" {
-  path = find_in_parent_folders()
+  path = find_in_parent_folders("root.hcl")
 }
 
 terraform {
