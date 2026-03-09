@@ -35,3 +35,7 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Backend config (contains account-specific values)
+backend.hcl
+.DS_Store
