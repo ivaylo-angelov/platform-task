@@ -32,7 +32,7 @@ Each team receives a fully isolated environment:
 - **Encrypted EBS (gp3)** — Root volumes encrypted by default
 - **Multi-AZ VPC** — Subnets span all available AZs in the region
 - **VPC Flow Logs** — Network observability and security auditing
-- **Community OpenTofu modules** — Battle-tested [terraform-aws-modules](https://github.com/terraform-aws-modules) for VPC, SGs, and EC2
+- **Community Terraform modules** — Battle-tested [terraform-aws-modules](https://github.com/terraform-aws-modules) for VPC, SGs, and EC2
 
 ## Prerequisites
 
